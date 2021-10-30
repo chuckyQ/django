@@ -10,12 +10,10 @@ from .resolvers import (
 
 
 def include(arg, namespace=None):
-    app_name = None
+
     if isinstance(arg, tuple):
         # Callable returning a namespace hint.
-        try:
-            urlconf_module, app_name = arg
-        except ValueError:
+        if len(arg) != 2:
             if namespace:
                 raise ImproperlyConfigured(
                     'Cannot override the namespace for a dynamic module that '
@@ -26,8 +24,11 @@ def include(arg, namespace=None):
                 '2-tuple containing the list of patterns and app_name, and '
                 'provide the namespace argument to include() instead.' % len(arg)
             )
+        urlconf_module, app_name = arg
+
     else:
         # No namespace hint - use manually provided namespace.
+        app_name = None
         urlconf_module = arg
 
     if isinstance(urlconf_module, str):
