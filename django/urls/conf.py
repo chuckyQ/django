@@ -4,7 +4,7 @@ from importlib import import_module
 
 from django.core.exceptions import ImproperlyConfigured
 
-from .resolvers import (
+from django.urls.resolvers import (
     LocalePrefixPattern, RegexPattern, RoutePattern, URLPattern, URLResolver,
 )
 
