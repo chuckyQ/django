@@ -272,13 +272,23 @@ rst_epilog = """
 
 # -- Options for LaTeX output --------------------------------------------------
 
+# Use XeLaTeX for Unicode support.
+latex_engine = 'xelatex'
+latex_use_xindy = False
+# Set font for CJK and fallbacks for unicode characters.
 latex_elements = {
-    'preamble': (
-        '\\DeclareUnicodeCharacter{2264}{\\ensuremath{\\le}}'
-        '\\DeclareUnicodeCharacter{2265}{\\ensuremath{\\ge}}'
-        '\\DeclareUnicodeCharacter{2665}{[unicode-heart]}'
-        '\\DeclareUnicodeCharacter{2713}{[unicode-checkmark]}'
-    ),
+    'fontpkg': r"""
+        \setmainfont{Symbola}
+    """,
+    'preamble': r"""
+        \usepackage{newunicodechar}
+        \usepackage[UTF8]{ctex}
+        \newunicodechar{π}{\ensuremath{\pi}}
+        \newunicodechar{≤}{\ensuremath{\le}}
+        \newunicodechar{≥}{\ensuremath{\ge}}
+        \newunicodechar{♥}{\ensuremath{\heartsuit}}
+        \newunicodechar{…}{\ensuremath{\ldots}}
+    """,
 }
 
 # Grouping the document tree into LaTeX files. List of tuples

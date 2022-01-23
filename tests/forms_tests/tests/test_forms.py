@@ -23,7 +23,8 @@ from django.test import SimpleTestCase
 from django.test.utils import override_settings
 from django.utils.datastructures import MultiValueDict
 from django.utils.safestring import mark_safe
-from tests.forms_tests.tests import jinja2_tests
+
+from . import jinja2_tests
 
 
 class FrameworkForm(Form):
@@ -791,6 +792,79 @@ Java</label></div>
 <option value="J">John Lennon</option>
 <option value="P" selected>Paul McCartney</option>
 </select>""")
+        f = SongForm()
+        self.assertHTMLEqual(
+            f.as_table(),
+            '<tr><th><label for="id_name">Name:</label></th>'
+            '<td><input type="text" name="name" required id="id_name"></td>'
+            '</tr><tr><th><label for="id_composers">Composers:</label></th>'
+            '<td><select name="composers" required id="id_composers" multiple>'
+            '<option value="J">John Lennon</option>'
+            '<option value="P">Paul McCartney</option>'
+            '</select></td></tr>',
+        )
+        self.assertHTMLEqual(
+            f.as_ul(),
+            '<li><label for="id_name">Name:</label>'
+            '<input type="text" name="name" required id="id_name"></li>'
+            '<li><label for="id_composers">Composers:</label>'
+            '<select name="composers" required id="id_composers" multiple>'
+            '<option value="J">John Lennon</option>'
+            '<option value="P">Paul McCartney</option>'
+            '</select></li>',
+        )
+        self.assertHTMLEqual(
+            f.as_p(),
+            '<p><label for="id_name">Name:</label>'
+            '<input type="text" name="name" required id="id_name"></p>'
+            '<p><label for="id_composers">Composers:</label>'
+            '<select name="composers" required id="id_composers" multiple>'
+            '<option value="J">John Lennon</option>'
+            '<option value="P">Paul McCartney</option>'
+            '</select></p>',
+        )
+
+    def test_multiple_checkbox_render(self):
+        f = SongForm()
+        self.assertHTMLEqual(
+            f.as_table(),
+            '<tr><th><label for="id_name">Name:</label></th><td>'
+            '<input type="text" name="name" required id="id_name"></td></tr>'
+            '<tr><th><label>Composers:</label></th><td><div id="id_composers">'
+            '<div><label for="id_composers_0">'
+            '<input type="checkbox" name="composers" value="J" '
+            'id="id_composers_0">John Lennon</label></div>'
+            '<div><label for="id_composers_1">'
+            '<input type="checkbox" name="composers" value="P" '
+            'id="id_composers_1">Paul McCartney</label></div>'
+            '</div></td></tr>',
+        )
+        self.assertHTMLEqual(
+            f.as_ul(),
+            '<li><label for="id_name">Name:</label>'
+            '<input type="text" name="name" required id="id_name"></li>'
+            '<li><label>Composers:</label><div id="id_composers">'
+            '<div><label for="id_composers_0">'
+            '<input type="checkbox" name="composers" value="J" '
+            'id="id_composers_0">John Lennon</label></div>'
+            '<div><label for="id_composers_1">'
+            '<input type="checkbox" name="composers" value="P" '
+            'id="id_composers_1">Paul McCartney</label></div>'
+            '</div></li>',
+        )
+        self.assertHTMLEqual(
+            f.as_p(),
+            '<p><label for="id_name">Name:</label>'
+            '<input type="text" name="name" required id="id_name"></p>'
+            '<p><label>Composers:</label><div id="id_composers">'
+            '<div><label for="id_composers_0">'
+            '<input type="checkbox" name="composers" value="J" '
+            'id="id_composers_0">John Lennon</label></div>'
+            '<div><label for="id_composers_1">'
+            '<input type="checkbox" name="composers" value="P" '
+            'id="id_composers_1">Paul McCartney</label></div>'
+            '</div></p>',
+        )
 
     def test_form_with_disabled_fields(self):
         class PersonForm(Form):
@@ -2252,6 +2326,41 @@ Password: <input type="password" name="password" required>
 <input type="hidden" name="next" value="/"></li>"""
         )
 
+    def test_help_text_html_safe(self):
+        """help_text should not be escaped."""
+        class UserRegistration(Form):
+            username = CharField(max_length=10, help_text='e.g., user@example.com')
+            password = CharField(
+                widget=PasswordInput,
+                help_text='Help text is <strong>escaped</strong>.',
+            )
+
+        p = UserRegistration(auto_id=False)
+        self.assertHTMLEqual(
+            p.as_ul(),
+            '<li>Username: <input type="text" name="username" maxlength="10" required>'
+            '<span class="helptext">e.g., user@example.com</span></li>'
+            '<li>Password: <input type="password" name="password" required>'
+            '<span class="helptext">Help text is <strong>escaped</strong>.</span></li>'
+        )
+        self.assertHTMLEqual(
+            p.as_p(),
+            '<p>Username: <input type="text" name="username" maxlength="10" required>'
+            '<span class="helptext">e.g., user@example.com</span></p>'
+            '<p>Password: <input type="password" name="password" required>'
+            '<span class="helptext">Help text is <strong>escaped</strong>.</span></p>'
+        )
+        self.assertHTMLEqual(
+            p.as_table(),
+            '<tr><th>Username:</th><td>'
+            '<input type="text" name="username" maxlength="10" required><br>'
+            '<span class="helptext">e.g., user@example.com</span></td></tr>'
+            '<tr><th>Password:</th><td>'
+            '<input type="password" name="password" required><br>'
+            '<span class="helptext">Help text is <strong>escaped</strong>.</span>'
+            '</td></tr>'
+        )
+
     def test_subclassing_forms(self):
         # You can subclass a Form to add fields. The resulting form subclass will have
         # all of the fields of the parent Form, plus whichever fields you define in the
@@ -2728,7 +2837,8 @@ Password: <input type="password" name="password" required>
 
     def test_label_has_required_css_class(self):
         """
-        #17922 - required_css_class is added to the label_tag() of required fields.
+        required_css_class is added to label_tag() and legend_tag() of required
+        fields.
         """
         class SomeForm(Form):
             required_css_class = 'required'
@@ -2738,10 +2848,22 @@ Password: <input type="password" name="password" required>
         f = SomeForm({'field': 'test'})
         self.assertHTMLEqual(f['field'].label_tag(), '<label for="id_field" class="required">Field:</label>')
         self.assertHTMLEqual(
+            f['field'].legend_tag(),
+            '<legend for="id_field" class="required">Field:</legend>',
+        )
+        self.assertHTMLEqual(
             f['field'].label_tag(attrs={'class': 'foo'}),
             '<label for="id_field" class="foo required">Field:</label>'
         )
+        self.assertHTMLEqual(
+            f['field'].legend_tag(attrs={'class': 'foo'}),
+            '<legend for="id_field" class="foo required">Field:</legend>'
+        )
         self.assertHTMLEqual(f['field2'].label_tag(), '<label for="id_field2">Field2:</label>')
+        self.assertHTMLEqual(
+            f['field2'].legend_tag(),
+            '<legend for="id_field2">Field2:</legend>',
+        )
 
     def test_label_split_datetime_not_displayed(self):
         class EventForm(Form):
@@ -2964,34 +3086,47 @@ Password: <input type="password" name="password" required>
 
         testcases = [  # (args, kwargs, expected)
             # without anything: just print the <label>
-            ((), {}, '<label for="id_field">Field:</label>'),
+            ((), {}, '<%(tag)s for="id_field">Field:</%(tag)s>'),
 
             # passing just one argument: overrides the field's label
-            (('custom',), {}, '<label for="id_field">custom:</label>'),
+            (('custom',), {}, '<%(tag)s for="id_field">custom:</%(tag)s>'),
 
             # the overridden label is escaped
-            (('custom&',), {}, '<label for="id_field">custom&amp;:</label>'),
-            ((mark_safe('custom&'),), {}, '<label for="id_field">custom&:</label>'),
+            (('custom&',), {}, '<%(tag)s for="id_field">custom&amp;:</%(tag)s>'),
+            ((mark_safe('custom&'),), {}, '<%(tag)s for="id_field">custom&:</%(tag)s>'),
 
             # Passing attrs to add extra attributes on the <label>
-            ((), {'attrs': {'class': 'pretty'}}, '<label for="id_field" class="pretty">Field:</label>')
+            (
+                (),
+                {'attrs': {'class': 'pretty'}},
+                '<%(tag)s for="id_field" class="pretty">Field:</%(tag)s>',
+            ),
         ]
 
         for args, kwargs, expected in testcases:
             with self.subTest(args=args, kwargs=kwargs):
-                self.assertHTMLEqual(boundfield.label_tag(*args, **kwargs), expected)
+                self.assertHTMLEqual(
+                    boundfield.label_tag(*args, **kwargs),
+                    expected % {'tag': 'label'},
+                )
+                self.assertHTMLEqual(
+                    boundfield.legend_tag(*args, **kwargs),
+                    expected % {'tag': 'legend'},
+                )
 
     def test_boundfield_label_tag_no_id(self):
         """
-        If a widget has no id, label_tag just returns the text with no
-        surrounding <label>.
+        If a widget has no id, label_tag() and legend_tag() return the text
+        with no surrounding <label>.
         """
         class SomeForm(Form):
             field = CharField()
         boundfield = SomeForm(auto_id='')['field']
 
         self.assertHTMLEqual(boundfield.label_tag(), 'Field:')
+        self.assertHTMLEqual(boundfield.legend_tag(), 'Field:')
         self.assertHTMLEqual(boundfield.label_tag('Custom&'), 'Custom&amp;:')
+        self.assertHTMLEqual(boundfield.legend_tag('Custom&'), 'Custom&amp;:')
 
     def test_boundfield_label_tag_custom_widget_id_for_label(self):
         class CustomIdForLabelTextInput(TextInput):
@@ -3008,7 +3143,12 @@ Password: <input type="password" name="password" required>
 
         form = SomeForm()
         self.assertHTMLEqual(form['custom'].label_tag(), '<label for="custom_id_custom">Custom:</label>')
+        self.assertHTMLEqual(
+            form['custom'].legend_tag(),
+            '<legend for="custom_id_custom">Custom:</legend>',
+        )
         self.assertHTMLEqual(form['empty'].label_tag(), '<label>Empty:</label>')
+        self.assertHTMLEqual(form['empty'].legend_tag(), '<legend>Empty:</legend>')
 
     def test_boundfield_empty_label(self):
         class SomeForm(Form):
@@ -3016,6 +3156,10 @@ Password: <input type="password" name="password" required>
         boundfield = SomeForm()['field']
 
         self.assertHTMLEqual(boundfield.label_tag(), '<label for="id_field"></label>')
+        self.assertHTMLEqual(
+            boundfield.legend_tag(),
+            '<legend for="id_field"></legend>',
+        )
 
     def test_boundfield_id_for_label(self):
         class SomeForm(Form):
@@ -3069,7 +3213,7 @@ Password: <input type="password" name="password" required>
         self.assertEqual(field.css_classes(extra_classes='test'), 'test')
         self.assertEqual(field.css_classes(extra_classes='test test'), 'test')
 
-    def test_label_tag_override(self):
+    def test_label_suffix_override(self):
         """
         BoundField label_suffix (if provided) overrides Form label_suffix
         """
@@ -3078,6 +3222,10 @@ Password: <input type="password" name="password" required>
         boundfield = SomeForm(label_suffix='!')['field']
 
         self.assertHTMLEqual(boundfield.label_tag(label_suffix='$'), '<label for="id_field">Field$</label>')
+        self.assertHTMLEqual(
+            boundfield.legend_tag(label_suffix='$'),
+            '<legend for="id_field">Field$</legend>',
+        )
 
     def test_error_dict(self):
         class MyForm(Form):
@@ -3526,9 +3674,10 @@ Password: <input type="password" name="password" required>
     def test_label_does_not_include_new_line(self):
         form = Person()
         field = form['first_name']
+        self.assertEqual(field.label_tag(), '<label for="id_first_name">First name:</label>')
         self.assertEqual(
-            field.label_tag(),
-            '<label for="id_first_name">First name:</label>',
+            field.legend_tag(),
+            '<legend for="id_first_name">First name:</legend>',
         )
 
     @override_settings(USE_THOUSAND_SEPARATOR=True)
@@ -3538,6 +3687,10 @@ Password: <input type="password" name="password" required>
         self.assertHTMLEqual(
             field.label_tag(attrs={'number': 9999}),
             '<label number="9999" for="id_first_name">First name:</label>',
+        )
+        self.assertHTMLEqual(
+            field.legend_tag(attrs={'number': 9999}),
+            '<legend number="9999" for="id_first_name">First name:</legend>',
         )
 
 
@@ -3743,6 +3896,43 @@ class TemplateTests(SimpleTestCase):
             '<p><label for="id_password1">Password1:</label>'
             '<input type="password" name="password1" id="id_password1" required></p>'
             '<p><label for="id_password2">Password2:</label>'
+            '<input type="password" name="password2" id="id_password2" required></p>'
+            '<input type="submit" required>'
+            '</form>',
+        )
+        # Use form.[field].legend_tag to output a field's label with a <legend>
+        # tag wrapped around it, but *only* if the given field has an "id"
+        # attribute. Recall from above that passing the "auto_id" argument to a
+        # Form gives each field an "id" attribute.
+        t = Template(
+            '<form>'
+            '<p>{{ form.username.legend_tag }} {{ form.username }}</p>'
+            '<p>{{ form.password1.legend_tag }} {{ form.password1 }}</p>'
+            '<p>{{ form.password2.legend_tag }} {{ form.password2 }}</p>'
+            '<input type="submit" required>'
+            '</form>'
+        )
+        f = UserRegistration(auto_id=False)
+        self.assertHTMLEqual(
+            t.render(Context({'form': f})),
+            '<form>'
+            '<p>Username: '
+            '<input type="text" name="username" maxlength="10" required></p>'
+            '<p>Password1: <input type="password" name="password1" required></p>'
+            '<p>Password2: <input type="password" name="password2" required></p>'
+            '<input type="submit" required>'
+            '</form>',
+        )
+        f = UserRegistration(auto_id='id_%s')
+        self.assertHTMLEqual(
+            t.render(Context({'form': f})),
+            '<form>'
+            '<p><legend for="id_username">Username:</legend>'
+            '<input id="id_username" type="text" name="username" maxlength="10" '
+            'required></p>'
+            '<p><legend for="id_password1">Password1:</legend>'
+            '<input type="password" name="password1" id="id_password1" required></p>'
+            '<p><legend for="id_password2">Password2:</legend>'
             '<input type="password" name="password2" id="id_password2" required></p>'
             '<input type="submit" required>'
             '</form>',
@@ -3965,3 +4155,15 @@ class OverrideTests(SimpleTestCase):
             self.assertInHTML('<th>1</th>', f.render())
         except RecursionError:
             self.fail('Cyclic reference in BoundField.render().')
+
+    def test_legend_tag(self):
+        class CustomFrameworkForm(FrameworkForm):
+            template_name = 'forms_tests/legend_test.html'
+            required_css_class = 'required'
+
+        f = CustomFrameworkForm()
+        self.assertHTMLEqual(
+            str(f),
+            '<label for="id_name" class="required">Name:</label>'
+            '<legend class="required">Language:</legend>',
+        )

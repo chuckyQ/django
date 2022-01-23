@@ -512,6 +512,14 @@ class ReverseManyToOneDescriptor:
         self.field = rel.field
 
     @cached_property
+    def related_manager_cache_key(self):
+        # Being able to access the manager instance precludes it from being
+        # hidden. The rel's accessor name is used to allow multiple managers
+        # to the same model to coexist. e.g. post.attached_comment_set and
+        # post.attached_link_set are separately cached.
+        return self.rel.get_cache_name()
+
+    @cached_property
     def related_manager_cls(self):
         related_model = self.rel.related_model
 
@@ -532,8 +540,11 @@ class ReverseManyToOneDescriptor:
         """
         if instance is None:
             return self
-
-        return self.related_manager_cls(instance)
+        key = self.related_manager_cache_key
+        instance_cache = instance._state.related_managers_cache
+        if key not in instance_cache:
+            instance_cache[key] = self.related_manager_cls(instance)
+        return instance_cache[key]
 
     def _get_set_deprecation_msg_params(self):
         return (
@@ -599,7 +610,7 @@ def create_reverse_many_to_one_manager(superclass, rel):
                     # for related object id.
                     rel_obj_id = tuple([
                         getattr(self.instance, target_field.attname)
-                        for target_field in self.field.get_path_info()[-1].target_fields
+                        for target_field in self.field.path_infos[-1].target_fields
                     ])
                 else:
                     rel_obj_id = getattr(self.instance, target_field.attname)
@@ -635,8 +646,9 @@ def create_reverse_many_to_one_manager(superclass, rel):
             # Since we just bypassed this class' get_queryset(), we must manage
             # the reverse relation manually.
             for rel_obj in queryset:
-                instance = instances_dict[rel_obj_attr(rel_obj)]
-                setattr(rel_obj, self.field.name, instance)
+                if not self.field.is_cached(rel_obj):
+                    instance = instances_dict[rel_obj_attr(rel_obj)]
+                    setattr(rel_obj, self.field.name, instance)
             cache_name = self.field.remote_field.get_cache_name()
             return queryset, rel_obj_attr, instance_attr, False, cache_name, False
 
@@ -796,6 +808,17 @@ class ManyToManyDescriptor(ReverseManyToOneDescriptor):
             self.rel,
             reverse=self.reverse,
         )
+
+    @cached_property
+    def related_manager_cache_key(self):
+        if self.reverse:
+            # Symmetrical M2Ms won't have an accessor name, but should never
+            # end up in the reverse branch anyway, as the related_name ends up
+            # being hidden, and no public manager is created.
+            return self.rel.get_cache_name()
+        else:
+            # For forward managers, defer to the field name.
+            return self.field.get_cache_name()
 
     def _get_set_deprecation_msg_params(self):
         return (

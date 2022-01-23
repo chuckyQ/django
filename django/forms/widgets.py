@@ -90,7 +90,7 @@ class Media:
         media = sorted(self._css)
         return chain.from_iterable([
             format_html(
-                '<link href="{}" type="text/css" media="{}" rel="stylesheet">',
+                '<link href="{}" media="{}" rel="stylesheet">',
                 self.absolute_path(path), medium
             ) for path in self._css[medium]
         ] for medium in media)
@@ -580,7 +580,7 @@ class ChoiceWidget(Widget):
         yield from self.options(name, value, attrs)
 
     def options(self, name, value, attrs=None):
-        """Yield a flat list of options for this widgets."""
+        """Yield a flat list of options for this widget."""
         for group in self.optgroups(name, value, attrs):
             yield from group[1]
 
@@ -849,9 +849,7 @@ class MultiWidget(Widget):
         return context
 
     def id_for_label(self, id_):
-        if id_:
-            id_ += '_0'
-        return id_
+        return ''
 
     def value_from_datadict(self, data, files, name):
         return [

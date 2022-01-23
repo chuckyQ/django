@@ -702,7 +702,7 @@ class Options:
         for i, ancestor in enumerate(chain[:-1]):
             child = chain[i + 1]
             link = child._meta.get_ancestor_link(ancestor)
-            path.extend(link.get_reverse_path_info())
+            path.extend(link.reverse_path_infos)
         return path
 
     def _populate_directed_relation_graph(self):
@@ -866,7 +866,11 @@ class Options:
         return [
             constraint
             for constraint in self.constraints
-            if isinstance(constraint, UniqueConstraint) and constraint.condition is None
+            if (
+                isinstance(constraint, UniqueConstraint) and
+                constraint.condition is None and
+                not constraint.contains_expressions
+            )
         ]
 
     @cached_property

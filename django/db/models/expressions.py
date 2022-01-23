@@ -651,6 +651,7 @@ class OuterRef(F):
         return self
 
 
+@deconstructible(path='django.db.models.Func')
 class Func(SQLiteNumericMixin, Expression):
     """An SQL function call."""
     function = None
@@ -731,6 +732,7 @@ class Func(SQLiteNumericMixin, Expression):
         return copy
 
 
+@deconstructible(path='django.db.models.Value')
 class Value(SQLiteNumericMixin, Expression):
     """Represent a wrapped value as a node within an expression."""
     # Provide a default value for `for_save` in order to allow unresolved
@@ -915,8 +917,8 @@ class Ref(Expression):
 class ExpressionList(Func):
     """
     An expression containing multiple expressions. Can be used to provide a
-    list of expressions as an argument to another expression, like an
-    ordering clause.
+    list of expressions as an argument to another expression, like a partition
+    clause.
     """
     template = '%(expressions)s'
 
@@ -933,7 +935,28 @@ class ExpressionList(Func):
         return self.as_sql(compiler, connection, **extra_context)
 
 
-class ExpressionWrapper(Expression):
+class OrderByList(Func):
+    template = 'ORDER BY %(expressions)s'
+
+    def __init__(self, *expressions, **extra):
+        expressions = (
+            (
+                OrderBy(F(expr[1:]), descending=True)
+                if isinstance(expr, str) and expr[0] == '-'
+                else expr
+            )
+            for expr in expressions
+        )
+        super().__init__(*expressions, **extra)
+
+    def as_sql(self, *args, **kwargs):
+        if not self.source_expressions:
+            return '', ()
+        return super().as_sql(*args, **kwargs)
+
+
+@deconstructible(path='django.db.models.ExpressionWrapper')
+class ExpressionWrapper(SQLiteNumericMixin, Expression):
     """
     An expression that can wrap another expression so that it can provide
     extra context to the inner expression, such as the output_field.
@@ -965,6 +988,7 @@ class ExpressionWrapper(Expression):
         return "{}({})".format(self.__class__.__name__, self.expression)
 
 
+@deconstructible(path='django.db.models.When')
 class When(Expression):
     template = 'WHEN %(condition)s THEN %(result)s'
     # This isn't a complete conditional expression, must be used in Case().
@@ -1032,7 +1056,8 @@ class When(Expression):
         return cols
 
 
-class Case(Expression):
+@deconstructible(path='django.db.models.Case')
+class Case(SQLiteNumericMixin, Expression):
     """
     An SQL searched CASE expression:
 
@@ -1124,7 +1149,8 @@ class Subquery(BaseExpression, Combinable):
 
     def __init__(self, queryset, output_field=None, **extra):
         # Allow the usage of both QuerySet and sql.Query objects.
-        self.query = getattr(queryset, 'query', queryset)
+        self.query = getattr(queryset, 'query', queryset).clone()
+        self.query.subquery = True
         self.extra = extra
         super().__init__(output_field)
 
@@ -1161,12 +1187,13 @@ class Subquery(BaseExpression, Combinable):
         return sql, sql_params
 
     def get_group_by_cols(self, alias=None):
+        # If this expression is referenced by an alias for an explicit GROUP BY
+        # through values() a reference to this expression and not the
+        # underlying .query must be returned to ensure external column
+        # references are not grouped against as well.
         if alias:
             return [Ref(alias, self)]
-        external_cols = self.get_external_cols()
-        if any(col.possibly_multivalued for col in external_cols):
-            return [self]
-        return external_cols
+        return self.query.get_group_by_cols()
 
 
 class Exists(Subquery):
@@ -1204,6 +1231,7 @@ class Exists(Subquery):
         return sql, params
 
 
+@deconstructible(path='django.db.models.OrderBy')
 class OrderBy(Expression):
     template = '%(expression)s %(ordering)s'
     conditional = False
@@ -1313,11 +1341,13 @@ class Window(SQLiteNumericMixin, Expression):
 
         if self.order_by is not None:
             if isinstance(self.order_by, (list, tuple)):
-                self.order_by = ExpressionList(*self.order_by)
-            elif not isinstance(self.order_by, BaseExpression):
+                self.order_by = OrderByList(*self.order_by)
+            elif isinstance(self.order_by, (BaseExpression, str)):
+                self.order_by = OrderByList(self.order_by)
+            else:
                 raise ValueError(
-                    'order_by must be either an Expression or a sequence of '
-                    'expressions.'
+                    'Window.order_by must be either a string reference to a '
+                    'field, an expression, or a list or tuple of them.'
                 )
         super().__init__(output_field=output_field)
         self.source_expression = self._parse_expressions(expression)[0]
@@ -1343,18 +1373,17 @@ class Window(SQLiteNumericMixin, Expression):
                 compiler=compiler, connection=connection,
                 template='PARTITION BY %(expressions)s',
             )
-            window_sql.extend(sql_expr)
+            window_sql.append(sql_expr)
             window_params.extend(sql_params)
 
         if self.order_by is not None:
-            window_sql.append(' ORDER BY ')
             order_sql, order_params = compiler.compile(self.order_by)
-            window_sql.extend(order_sql)
+            window_sql.append(order_sql)
             window_params.extend(order_params)
 
         if self.frame:
             frame_sql, frame_params = compiler.compile(self.frame)
-            window_sql.append(' ' + frame_sql)
+            window_sql.append(frame_sql)
             window_params.extend(frame_params)
 
         params.extend(window_params)
@@ -1362,7 +1391,7 @@ class Window(SQLiteNumericMixin, Expression):
 
         return template % {
             'expression': expr_sql,
-            'window': ''.join(window_sql).strip()
+            'window': ' '.join(window_sql).strip()
         }, params
 
     def as_sqlite(self, compiler, connection):
@@ -1379,7 +1408,7 @@ class Window(SQLiteNumericMixin, Expression):
         return '{} OVER ({}{}{})'.format(
             str(self.source_expression),
             'PARTITION BY ' + str(self.partition_by) if self.partition_by else '',
-            'ORDER BY ' + str(self.order_by) if self.order_by else '',
+            str(self.order_by or ''),
             str(self.frame or ''),
         )
 

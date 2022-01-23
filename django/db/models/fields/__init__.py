@@ -542,11 +542,7 @@ class Field(RegisterLookupMixin):
         return NotImplemented
 
     def __hash__(self):
-        return hash((
-            self.creation_counter,
-            self.model._meta.app_label if hasattr(self, 'model') else None,
-            self.model._meta.model_name if hasattr(self, 'model') else None,
-        ))
+        return hash(self.creation_counter)
 
     def __deepcopy__(self, memodict):
         # We don't have to deepcopy very much here, since most things are not
@@ -994,6 +990,15 @@ class BooleanField(Field):
             defaults = {'form_class': form_class, 'required': False}
         return super().formfield(**{**defaults, **kwargs})
 
+    def select_format(self, compiler, sql, params):
+        sql, params = super().select_format(compiler, sql, params)
+        # Filters that match everything are handled as empty strings in the
+        # WHERE clause, but in SELECT or GROUP BY list they must use a
+        # predicate that's always True.
+        if sql == '':
+            sql = '1'
+        return sql, params
+
 
 class CharField(Field):
     description = _("String (up to %(max_length)s)")
@@ -1001,7 +1006,8 @@ class CharField(Field):
     def __init__(self, *args, db_collation=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.db_collation = db_collation
-        self.validators.append(validators.MaxLengthValidator(self.max_length))
+        if self.max_length is not None:
+            self.validators.append(validators.MaxLengthValidator(self.max_length))
 
     def check(self, **kwargs):
         databases = kwargs.get('databases') or []

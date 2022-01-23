@@ -476,6 +476,8 @@ class ProjectState:
 
     def _find_concrete_model_from_proxy(self, proxy_models, model_state):
         for base in model_state.bases:
+            if not (isinstance(base, str) or issubclass(base, models.Model)):
+                continue
             base_key = make_model_tuple(base)
             base_state = proxy_models.get(base_key)
             if not base_state:
@@ -683,11 +685,8 @@ class ModelState:
         return self.name.lower()
 
     def get_field(self, field_name):
-        field_name = (
-            self.options['order_with_respect_to']
-            if field_name == '_order'
-            else field_name
-        )
+        if field_name == '_order':
+            field_name = self.options.get('order_with_respect_to', field_name)
         return self.fields[field_name]
 
     @classmethod

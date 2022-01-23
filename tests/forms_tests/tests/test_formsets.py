@@ -7,11 +7,15 @@ from django.forms import (
     BaseForm, CharField, DateField, FileField, Form, IntegerField,
     SplitDateTimeField, formsets,
 )
-from django.forms.formsets import BaseFormSet, all_valid, formset_factory
+from django.forms.formsets import (
+    INITIAL_FORM_COUNT, MAX_NUM_FORM_COUNT, MIN_NUM_FORM_COUNT,
+    TOTAL_FORM_COUNT, BaseFormSet, ManagementForm, all_valid, formset_factory,
+)
 from django.forms.utils import ErrorList
 from django.forms.widgets import HiddenInput
 from django.test import SimpleTestCase
-from tests.forms_tests.tests import jinja2_tests
+
+from . import jinja2_tests
 
 
 class Choice(Form):
@@ -20,6 +24,12 @@ class Choice(Form):
 
 
 ChoiceFormSet = formset_factory(Choice)
+
+
+class ChoiceFormsetWithNonFormError(ChoiceFormSet):
+    def clean(self):
+        super().clean()
+        raise ValidationError('non-form error')
 
 
 class FavoriteDrinkForm(Form):
@@ -998,6 +1008,18 @@ class FormsFormsetTestCase(SimpleTestCase):
 <td><input type="text" name="form-1-name" id="id_form-1-name"></td></tr>"""
         )
 
+    def test_management_form_field_names(self):
+        """The management form class has field names matching the constants."""
+        self.assertCountEqual(
+            ManagementForm.base_fields,
+            [
+                TOTAL_FORM_COUNT,
+                INITIAL_FORM_COUNT,
+                MIN_NUM_FORM_COUNT,
+                MAX_NUM_FORM_COUNT,
+            ],
+        )
+
     def test_management_form_prefix(self):
         """The management form has the correct prefix."""
         formset = FavoriteDrinksFormSet()
@@ -1312,6 +1334,63 @@ class FormsFormsetTestCase(SimpleTestCase):
         self.assertEqual(formset.management_form.renderer, renderer)
         self.assertEqual(formset.non_form_errors().renderer, renderer)
         self.assertEqual(formset.empty_form.renderer, renderer)
+
+    def test_repr(self):
+        valid_formset = self.make_choiceformset([('test', 1)])
+        valid_formset.full_clean()
+        invalid_formset = self.make_choiceformset([('test', '')])
+        invalid_formset.full_clean()
+        partially_invalid_formset = self.make_choiceformset(
+            [('test', '1'), ('test', '')],
+        )
+        partially_invalid_formset.full_clean()
+        invalid_formset_non_form_errors_only = self.make_choiceformset(
+            [('test', '')],
+            formset_class=ChoiceFormsetWithNonFormError,
+        )
+        invalid_formset_non_form_errors_only.full_clean()
+
+        cases = [
+            (
+                self.make_choiceformset(),
+                '<ChoiceFormSet: bound=False valid=Unknown total_forms=1>',
+            ),
+            (
+                self.make_choiceformset(
+                    formset_class=formset_factory(Choice, extra=10),
+                ),
+                '<ChoiceFormSet: bound=False valid=Unknown total_forms=10>',
+            ),
+            (
+                self.make_choiceformset([]),
+                '<ChoiceFormSet: bound=True valid=Unknown total_forms=0>',
+            ),
+            (
+                self.make_choiceformset([('test', 1)]),
+                '<ChoiceFormSet: bound=True valid=Unknown total_forms=1>',
+            ),
+            (valid_formset, '<ChoiceFormSet: bound=True valid=True total_forms=1>'),
+            (invalid_formset, '<ChoiceFormSet: bound=True valid=False total_forms=1>'),
+            (
+                partially_invalid_formset,
+                '<ChoiceFormSet: bound=True valid=False total_forms=2>',
+            ),
+            (
+                invalid_formset_non_form_errors_only,
+                '<ChoiceFormsetWithNonFormError: bound=True valid=False total_forms=1>',
+            ),
+        ]
+        for formset, expected_repr in cases:
+            with self.subTest(expected_repr=expected_repr):
+                self.assertEqual(repr(formset), expected_repr)
+
+    def test_repr_do_not_trigger_validation(self):
+        formset = self.make_choiceformset([('test', 1)])
+        with mock.patch.object(formset, 'full_clean') as mocked_full_clean:
+            repr(formset)
+            mocked_full_clean.assert_not_called()
+            formset.is_valid()
+            mocked_full_clean.assert_called()
 
 
 @jinja2_tests

@@ -1577,6 +1577,13 @@ produce empty output::
 
     {{ values|dictsort:"0" }}
 
+Ordering by elements at specified index is not supported on dictionaries.
+
+.. versionchanged:: 2.2.26
+
+    In older versions, ordering elements at specified index was supported on
+    dictionaries.
+
 .. templatefilter:: dictsortreversed
 
 ``dictsortreversed``
@@ -1832,7 +1839,7 @@ If ``value`` is the list ``['a', 'b', 'c']``, the output will be the string
 Safely outputs a Python object as JSON, wrapped in a ``<script>`` tag, ready
 for use with JavaScript.
 
-**Argument:** HTML "id" of the ``<script>`` tag.
+**Argument:** The optional HTML "id" of the ``<script>`` tag.
 
 For example::
 
@@ -1860,6 +1867,10 @@ example if ``value`` is ``{'hello': 'world</script>&amp;'}``, the output is:
 This is compatible with a strict Content Security Policy that prohibits in-page
 script execution. It also maintains a clean separation between passive data and
 executable code.
+
+.. versionchanged:: 4.1
+
+    In older versions, the HTML "id" was a required argument.
 
 .. templatefilter:: last
 
@@ -2626,7 +2637,7 @@ It is also able to consume standard context variables, e.g. assuming a
 ``user_stylesheet`` variable is passed to the template::
 
     {% load static %}
-    <link rel="stylesheet" href="{% static user_stylesheet %}" type="text/css" media="screen">
+    <link rel="stylesheet" href="{% static user_stylesheet %}" media="screen">
 
 If you'd like to retrieve a static URL without displaying it, you can use a
 slightly different call::

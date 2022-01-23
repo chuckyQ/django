@@ -27,7 +27,6 @@ class DatabaseFeatures(BaseDatabaseFeatures):
     supports_sequence_reset = False
     can_introspect_materialized_views = True
     atomic_transactions = False
-    supports_combined_alters = False
     nulls_order_largest = True
     requires_literal_defaults = True
     closed_cursor_error_class = InterfaceError
@@ -78,9 +77,15 @@ class DatabaseFeatures(BaseDatabaseFeatures):
             'db_functions.text.test_sha224.SHA224Tests.test_basic',
             'db_functions.text.test_sha224.SHA224Tests.test_transform',
         },
+        "Oracle doesn't correctly calculate ISO 8601 week numbering before "
+        "1583 (the Gregorian calendar was introduced in 1582).": {
+            'db_functions.datetime.test_extract_trunc.DateFunctionTests.test_trunc_week_before_1000',
+            'db_functions.datetime.test_extract_trunc.DateFunctionWithTimeZoneTests.test_trunc_week_before_1000',
+        },
         "Oracle doesn't support bitwise XOR.": {
             'expressions.tests.ExpressionOperatorTests.test_lefthand_bitwise_xor',
             'expressions.tests.ExpressionOperatorTests.test_lefthand_bitwise_xor_null',
+            'expressions.tests.ExpressionOperatorTests.test_lefthand_bitwise_xor_right_null',
         },
         "Oracle requires ORDER BY in row_number, ANSI:SQL doesn't.": {
             'expressions_window.tests.WindowFunctionTests.test_row_number_no_ordering',

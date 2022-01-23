@@ -1,25 +1,30 @@
 """Redis cache backend."""
 
+import pickle
 import random
 import re
 
 from django.core.cache.backends.base import DEFAULT_TIMEOUT, BaseCache
-from django.core.serializers.base import PickleSerializer
 from django.utils.functional import cached_property
 from django.utils.module_loading import import_string
 
 
-class RedisSerializer(PickleSerializer):
+class RedisSerializer:
+    def __init__(self, protocol=None):
+        self.protocol = pickle.HIGHEST_PROTOCOL if protocol is None else protocol
+
     def dumps(self, obj):
-        if isinstance(obj, int):
+        # Only skip pickling for integers, a int subclasses as bool should be
+        # pickled.
+        if type(obj) is int:
             return obj
-        return super().dumps(obj)
+        return pickle.dumps(obj, self.protocol)
 
     def loads(self, data):
         try:
             return int(data)
         except ValueError:
-            return super().loads(data)
+            return pickle.loads(data)
 
 
 class RedisCacheClient:

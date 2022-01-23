@@ -61,7 +61,7 @@ _json_script_escapes = {
 }
 
 
-def json_script(value, element_id):
+def json_script(value, element_id=None):
     """
     Escape all the HTML/XML special characters with their unicode escapes, so
     value is safe to be output anywhere except for inside a tag attribute. Wrap
@@ -69,10 +69,13 @@ def json_script(value, element_id):
     """
     from django.core.serializers.json import DjangoJSONEncoder
     json_str = json.dumps(value, cls=DjangoJSONEncoder).translate(_json_script_escapes)
-    return format_html(
-        '<script id="{}" type="application/json">{}</script>',
-        element_id, mark_safe(json_str)
-    )
+    if element_id:
+        template = '<script id="{}" type="application/json">{}</script>'
+        args = (element_id, mark_safe(json_str))
+    else:
+        template = '<script type="application/json">{}</script>'
+        args = (mark_safe(json_str),)
+    return format_html(template, *args)
 
 
 def conditional_escape(text):
@@ -250,17 +253,22 @@ class Urlizer:
 
         If autoescape is True, autoescape the link text and URLs.
         """
-        self.trim_url_limit = trim_url_limit
-        self.nofollow = nofollow
-        self.autoescape = autoescape
-        self.safe_input = isinstance(text, SafeData)
+        safe_input = isinstance(text, SafeData)
 
         words = self.word_split_re.split(str(text))
         return ''.join([
-            self.handle_word(word) for word in words
+            self.handle_word(
+                word,
+                safe_input=safe_input,
+                trim_url_limit=trim_url_limit,
+                nofollow=nofollow,
+                autoescape=autoescape,
+            ) for word in words
         ])
 
-    def handle_word(self, word):
+    def handle_word(
+        self, word, *, safe_input, trim_url_limit=None, nofollow=False, autoescape=False,
+    ):
         if '.' in word or '@' in word or ':' in word:
             # lead: Punctuation trimmed from the beginning of the word.
             # middle: State of the word.
@@ -268,7 +276,7 @@ class Urlizer:
             lead, middle, trail = self.trim_punctuation(word)
             # Make URL we want to point to.
             url = None
-            nofollow_attr = ' rel="nofollow"' if self.nofollow else ''
+            nofollow_attr = ' rel="nofollow"' if nofollow else ''
             if self.simple_url_re.match(middle):
                 url = smart_urlquote(html.unescape(middle))
             elif self.simple_url_2_re.match(middle):
@@ -283,8 +291,8 @@ class Urlizer:
                 nofollow_attr = ''
             # Make link.
             if url:
-                trimmed = self.trim_url(middle)
-                if self.autoescape and not self.safe_input:
+                trimmed = self.trim_url(middle, limit=trim_url_limit)
+                if autoescape and not safe_input:
                     lead, trail = escape(lead), escape(trail)
                     trimmed = escape(trimmed)
                 middle = self.url_template.format(
@@ -294,20 +302,20 @@ class Urlizer:
                 )
                 return mark_safe(f'{lead}{middle}{trail}')
             else:
-                if self.safe_input:
+                if safe_input:
                     return mark_safe(word)
-                elif self.autoescape:
+                elif autoescape:
                     return escape(word)
-        elif self.safe_input:
+        elif safe_input:
             return mark_safe(word)
-        elif self.autoescape:
+        elif autoescape:
             return escape(word)
         return word
 
-    def trim_url(self, x):
-        if self.trim_url_limit is None or len(x) <= self.trim_url_limit:
+    def trim_url(self, x, *, limit):
+        if limit is None or len(x) <= limit:
             return x
-        return '%s…' % x[:max(0, self.trim_url_limit - 1)]
+        return '%s…' % x[:max(0, limit - 1)]
 
     def trim_punctuation(self, word):
         """

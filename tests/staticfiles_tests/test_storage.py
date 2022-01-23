@@ -160,52 +160,6 @@ class TestHashedFiles:
             self.assertIn(b"https://", relfile.read())
         self.assertPostCondition()
 
-    def test_module_import(self):
-        relpath = self.hashed_file_path('cached/module.js')
-        self.assertEqual(relpath, 'cached/module.91b9cf9935da.js')
-        tests = [
-            # Relative imports.
-            b'import testConst from "./module_test.d489af3cf882.js";',
-            b'import relativeModule from "../nested/js/nested.866475c46bb4.js";',
-            b'import { firstConst, secondConst } from "./module_test.d489af3cf882.js";',
-            # Absolute import.
-            b'import rootConst from "/static/absolute_root.5586327fe78c.js";',
-            # Dynamic import.
-            b'const dynamicModule = import("./module_test.d489af3cf882.js");',
-            # Creating a module object.
-            b'import * as NewModule from "./module_test.d489af3cf882.js";',
-            # Aliases.
-            b'import { testConst as alias } from "./module_test.d489af3cf882.js";',
-            b'import {\n'
-            b'    firstVar as firstVarAlias,\n'
-            b'    secondVar as secondVarAlias\n'
-            b'} from "./module_test.d489af3cf882.js";',
-        ]
-        with storage.staticfiles_storage.open(relpath) as relfile:
-            content = relfile.read()
-            for module_import in tests:
-                with self.subTest(module_import=module_import):
-                    self.assertIn(module_import, content)
-        self.assertPostCondition()
-
-    def test_aggregating_modules(self):
-        relpath = self.hashed_file_path('cached/module.js')
-        self.assertEqual(relpath, 'cached/module.91b9cf9935da.js')
-        tests = [
-            b'export * from "./module_test.d489af3cf882.js";',
-            b'export { testConst } from "./module_test.d489af3cf882.js";',
-            b'export {\n'
-            b'    firstVar as firstVarAlias,\n'
-            b'    secondVar as secondVarAlias\n'
-            b'} from "./module_test.d489af3cf882.js";',
-        ]
-        with storage.staticfiles_storage.open(relpath) as relfile:
-            content = relfile.read()
-            for module_import in tests:
-                with self.subTest(module_import=module_import):
-                    self.assertIn(module_import, content)
-        self.assertPostCondition()
-
     @override_settings(
         STATICFILES_DIRS=[os.path.join(TEST_ROOT, 'project', 'loop')],
         STATICFILES_FINDERS=['django.contrib.staticfiles.finders.FileSystemFinder'],
@@ -258,9 +212,33 @@ class TestHashedFiles:
             self.assertIn(b"other.d41d8cd98f00.css", content)
         self.assertPostCondition()
 
+    def test_css_source_map(self):
+        relpath = self.hashed_file_path('cached/source_map.css')
+        self.assertEqual(relpath, 'cached/source_map.b2fceaf426aa.css')
+        with storage.staticfiles_storage.open(relpath) as relfile:
+            content = relfile.read()
+            self.assertNotIn(b'/*# sourceMappingURL=source_map.css.map */', content)
+            self.assertIn(
+                b'/*# sourceMappingURL=source_map.css.99914b932bd3.map */',
+                content,
+            )
+        self.assertPostCondition()
+
+    def test_css_source_map_sensitive(self):
+        relpath = self.hashed_file_path('cached/source_map_sensitive.css')
+        self.assertEqual(relpath, 'cached/source_map_sensitive.456683f2106f.css')
+        with storage.staticfiles_storage.open(relpath) as relfile:
+            content = relfile.read()
+            self.assertIn(b'/*# sOuRcEMaPpInGURL=source_map.css.map */', content)
+            self.assertNotIn(
+                b'/*# sourceMappingURL=source_map.css.99914b932bd3.map */',
+                content,
+            )
+        self.assertPostCondition()
+
     def test_js_source_map(self):
         relpath = self.hashed_file_path('cached/source_map.js')
-        self.assertEqual(relpath, 'cached/source_map.9371cbb02a26.js')
+        self.assertEqual(relpath, 'cached/source_map.cd45b8534a87.js')
         with storage.staticfiles_storage.open(relpath) as relfile:
             content = relfile.read()
             self.assertNotIn(b'//# sourceMappingURL=source_map.js.map', content)

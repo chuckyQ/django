@@ -753,11 +753,11 @@ class AdminViewBasicTest(AdminViewBasicTestCase):
         )
         self.assertContains(response, '<div id="changelist-filter">')
         self.assertContains(
-            response, '<a href="?surface__exact=x" title="Horizontal">Horizontal</a>',
+            response, '<a href="?surface__exact=x">Horizontal</a>',
             msg_prefix=fail_msg, html=True
         )
         self.assertContains(
-            response, '<a href="?surface__exact=y" title="Vertical">Vertical</a>',
+            response, '<a href="?surface__exact=y">Vertical</a>',
             msg_prefix=fail_msg, html=True
         )
 
@@ -1122,14 +1122,28 @@ class AdminViewBasicTest(AdminViewBasicTestCase):
     def test_render_views_no_subtitle(self):
         tests = [
             reverse('admin:index'),
+            reverse('admin:password_change'),
             reverse('admin:app_list', args=('admin_views',)),
             reverse('admin:admin_views_article_delete', args=(self.a1.pk,)),
             reverse('admin:admin_views_article_history', args=(self.a1.pk,)),
+            # Login must be after logout.
+            reverse('admin:logout'),
+            reverse('admin:login'),
         ]
         for url in tests:
             with self.subTest(url=url):
                 with self.assertNoLogs('django.template', 'DEBUG'):
                     self.client.get(url)
+
+    def test_render_delete_selected_confirmation_no_subtitle(self):
+        post_data = {
+            'action': 'delete_selected',
+            'selected_across': '0',
+            'index': '0',
+            '_selected_action': self.a1.pk,
+        }
+        with self.assertNoLogs('django.template', 'DEBUG'):
+            self.client.post(reverse('admin:admin_views_article_changelist'), post_data)
 
 
 @override_settings(TEMPLATES=[{
@@ -4611,7 +4625,7 @@ class SeleniumTests(AdminSeleniumTestCase):
         self.assertEqual(slug2, 'option-two-the-main-name-and-its-awesomeiiii')
         self.assertEqual(slug3, 'the-main-n\xe0m\xeb-and-its-aw\u03b5\u0161ome\u0131\u0131\u0131i')
 
-        # Stacked inlines ----------------------------------------------------
+        # Stacked inlines with fieldsets -------------------------------------
         # Initial inline
         self.selenium.find_element(By.ID, 'id_relatedprepopulated_set-0-pubdate').send_keys('2011-12-17')
         self.select_option('#id_relatedprepopulated_set-0-status', 'option one')
@@ -4687,6 +4701,32 @@ class SeleniumTests(AdminSeleniumTestCase):
             len(self.selenium.find_elements(By.CLASS_NAME, 'select2-selection')),
             num_initial_select2_inputs + 6
         )
+        # Stacked Inlines without fieldsets ----------------------------------
+        # Initial inline.
+        row_id = 'id_relatedprepopulated_set-4-0-'
+        self.selenium.find_element(By.ID, f'{row_id}pubdate').send_keys('2011-12-12')
+        self.select_option(f'#{row_id}status', 'option one')
+        self.selenium.find_element(By.ID, f'{row_id}name').send_keys(' sŤāÇkeð  inline !  ')
+        slug1 = self.selenium.find_element(By.ID, f'{row_id}slug1').get_attribute('value')
+        slug2 = self.selenium.find_element(By.ID, f'{row_id}slug2').get_attribute('value')
+        self.assertEqual(slug1, 'stacked-inline-2011-12-12')
+        self.assertEqual(slug2, 'option-one')
+        # Add inline.
+        self.selenium.find_elements(
+            By.LINK_TEXT,
+            'Add another Related prepopulated',
+        )[3].click()
+        row_id = 'id_relatedprepopulated_set-4-1-'
+        self.selenium.find_element(By.ID, f'{row_id}pubdate').send_keys('1999-01-20')
+        self.select_option(f'#{row_id}status', 'option two')
+        self.selenium.find_element(By.ID, f'{row_id}name').send_keys(
+            ' now you haVe anöther   sŤāÇkeð  inline with a very loooong '
+        )
+        slug1 = self.selenium.find_element(By.ID, f'{row_id}slug1').get_attribute('value')
+        slug2 = self.selenium.find_element(By.ID, f'{row_id}slug2').get_attribute('value')
+        self.assertEqual(slug1, 'now-you-have-another-stacked-inline-with-a-very-lo')
+        self.assertEqual(slug2, 'option-two')
+
         # Save and check that everything is properly stored in the database
         with self.wait_page_loaded():
             self.selenium.find_element(By.XPATH, '//input[@value="Save"]').click()
@@ -4699,7 +4739,7 @@ class SeleniumTests(AdminSeleniumTestCase):
             slug2='option-two-the-main-name-and-its-awesomeiiii',
             slug3='the-main-nàmë-and-its-awεšomeıııi',
         )
-        self.assertEqual(RelatedPrepopulated.objects.all().count(), 4)
+        self.assertEqual(RelatedPrepopulated.objects.all().count(), 6)
         RelatedPrepopulated.objects.get(
             name=' here is a sŤāÇkeð   inline !  ',
             pubdate='2011-12-17',
@@ -4783,6 +4823,49 @@ class SeleniumTests(AdminSeleniumTestCase):
         self.selenium.find_elements(By.LINK_TEXT, 'Show')[0].click()
         self.assertTrue(self.selenium.find_element(By.ID, 'id_title').is_displayed())
         self.assertEqual(self.selenium.find_element(By.ID, 'fieldsetcollapser0').text, "Hide")
+
+    def test_selectbox_height_collapsible_fieldset(self):
+        from selenium.webdriver.common.by import By
+
+        self.admin_login(
+            username='super',
+            password='secret',
+            login_url=reverse('admin7:index'),
+        )
+        url = self.live_server_url + reverse('admin7:admin_views_pizza_add')
+        self.selenium.get(url)
+        self.selenium.find_elements(By.LINK_TEXT, 'Show')[0].click()
+        filter_box = self.selenium.find_element(By.ID, 'id_toppings_filter')
+        from_box = self.selenium.find_element(By.ID, 'id_toppings_from')
+        to_box = self.selenium.find_element(By.ID, 'id_toppings_to')
+        self.assertEqual(
+            to_box.get_property('offsetHeight'),
+            (
+                filter_box.get_property('offsetHeight') +
+                from_box.get_property('offsetHeight')
+            ),
+        )
+
+    def test_selectbox_height_not_collapsible_fieldset(self):
+        from selenium.webdriver.common.by import By
+
+        self.admin_login(
+            username='super',
+            password='secret',
+            login_url=reverse('admin7:index'),
+        )
+        url = self.live_server_url + reverse('admin7:admin_views_question_add')
+        self.selenium.get(url)
+        filter_box = self.selenium.find_element(By.ID, 'id_related_questions_filter')
+        from_box = self.selenium.find_element(By.ID, 'id_related_questions_from')
+        to_box = self.selenium.find_element(By.ID, 'id_related_questions_to')
+        self.assertEqual(
+            to_box.get_property('offsetHeight'),
+            (
+                filter_box.get_property('offsetHeight') +
+                from_box.get_property('offsetHeight')
+            ),
+        )
 
     def test_first_field_focus(self):
         """JavaScript-assisted auto-focus on first usable form field."""
@@ -5076,6 +5159,25 @@ class SeleniumTests(AdminSeleniumTestCase):
         self.selenium.find_element(By.XPATH, '//input[@value="Save"]').click()
         self.wait_until(lambda d: len(d.window_handles) == 1, 1)
         self.selenium.switch_to.window(self.selenium.window_handles[-1])
+
+    def test_hidden_fields_small_window(self):
+        from selenium.webdriver.common.by import By
+
+        self.admin_login(
+            username='super',
+            password='secret',
+            login_url=reverse('admin:index'),
+        )
+        self.selenium.get(self.live_server_url + reverse('admin:admin_views_story_add'))
+        field_title = self.selenium.find_element(By.CLASS_NAME, 'field-title')
+        current_size = self.selenium.get_window_size()
+        try:
+            self.selenium.set_window_size(1024, 768)
+            self.assertIs(field_title.is_displayed(), False)
+            self.selenium.set_window_size(767, 575)
+            self.assertIs(field_title.is_displayed(), False)
+        finally:
+            self.selenium.set_window_size(current_size['width'], current_size['height'])
 
 
 @override_settings(ROOT_URLCONF='admin_views.urls')
@@ -5787,7 +5889,6 @@ class AdminDocsTest(TestCase):
             ],
         },
     }],
-    USE_I18N=False,
 )
 class ValidXHTMLTests(TestCase):
 
@@ -5799,9 +5900,10 @@ class ValidXHTMLTests(TestCase):
         self.client.force_login(self.superuser)
 
     def test_lang_name_present(self):
-        response = self.client.get(reverse('admin:app_list', args=('admin_views',)))
-        self.assertNotContains(response, ' lang=""')
-        self.assertNotContains(response, ' xml:lang=""')
+        with translation.override(None):
+            response = self.client.get(reverse('admin:app_list', args=('admin_views',)))
+            self.assertNotContains(response, ' lang=""')
+            self.assertNotContains(response, ' xml:lang=""')
 
 
 @override_settings(ROOT_URLCONF='admin_views.urls', USE_THOUSAND_SEPARATOR=True)

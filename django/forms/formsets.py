@@ -30,15 +30,13 @@ class ManagementForm(Form):
     new forms via JavaScript, you should increment the count field of this form
     as well.
     """
-    def __init__(self, *args, **kwargs):
-        self.base_fields[TOTAL_FORM_COUNT] = IntegerField(widget=HiddenInput)
-        self.base_fields[INITIAL_FORM_COUNT] = IntegerField(widget=HiddenInput)
-        # MIN_NUM_FORM_COUNT and MAX_NUM_FORM_COUNT are output with the rest of
-        # the management form, but only for the convenience of client-side
-        # code. The POST value of them returned from the client is not checked.
-        self.base_fields[MIN_NUM_FORM_COUNT] = IntegerField(required=False, widget=HiddenInput)
-        self.base_fields[MAX_NUM_FORM_COUNT] = IntegerField(required=False, widget=HiddenInput)
-        super().__init__(*args, **kwargs)
+    TOTAL_FORMS = IntegerField(widget=HiddenInput)
+    INITIAL_FORMS = IntegerField(widget=HiddenInput)
+    # MIN_NUM_FORM_COUNT and MAX_NUM_FORM_COUNT are output with the rest of the
+    # management form, but only for the convenience of client-side code. The
+    # POST value of them returned from the client is not checked.
+    MIN_NUM_FORMS = IntegerField(required=False, widget=HiddenInput)
+    MAX_NUM_FORMS = IntegerField(required=False, widget=HiddenInput)
 
     def clean(self):
         cleaned_data = super().clean()
@@ -104,6 +102,22 @@ class BaseFormSet(RenderableFormMixin):
         included in the length.
         """
         return True
+
+    def __repr__(self):
+        if self._errors is None:
+            is_valid = 'Unknown'
+        else:
+            is_valid = (
+                self.is_bound and
+                not self._non_form_errors and
+                not any(form_errors for form_errors in self._errors)
+            )
+        return '<%s: bound=%s valid=%s total_forms=%s>' % (
+            self.__class__.__qualname__,
+            self.is_bound,
+            is_valid,
+            self.total_form_count(),
+        )
 
     @cached_property
     def management_form(self):

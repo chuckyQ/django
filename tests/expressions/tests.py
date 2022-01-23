@@ -537,6 +537,15 @@ class BasicExpressionsTests(TestCase):
             qs.query.annotations['small_company'],
         )
 
+    def test_subquery_sql(self):
+        employees = Employee.objects.all()
+        employees_subquery = Subquery(employees)
+        self.assertIs(employees_subquery.query.subquery, True)
+        self.assertIs(employees.query.subquery, False)
+        compiler = employees_subquery.query.get_compiler(connection=connection)
+        sql, _ = employees_subquery.as_sql(compiler, connection)
+        self.assertIn('(SELECT ', sql)
+
     def test_in_subquery(self):
         # This is a contrived test (and you really wouldn't write this query),
         # but it is a succinct way to test the __in=Subquery() construct.
@@ -1178,6 +1187,13 @@ class ExpressionsNumericTests(TestCase):
             ordered=False
         )
 
+    def test_filter_decimal_expression(self):
+        obj = Number.objects.create(integer=0, float=1, decimal_value=Decimal('1'))
+        qs = Number.objects.annotate(
+            x=ExpressionWrapper(Value(1), output_field=DecimalField()),
+        ).filter(Q(x=1, integer=0) & Q(x=Decimal('1')))
+        self.assertSequenceEqual(qs, [obj])
+
     def test_complex_expressions(self):
         """
         Complex expressions of different connection types are possible.
@@ -1239,6 +1255,12 @@ class ExpressionOperatorTests(TestCase):
         Number.objects.filter(pk=self.n.pk).update(integer=F('integer') % 20)
         self.assertEqual(Number.objects.get(pk=self.n.pk).integer, 2)
 
+    def test_lefthand_modulo_null(self):
+        # LH Modulo arithmetic on integers.
+        Employee.objects.create(firstname='John', lastname='Doe', salary=None)
+        qs = Employee.objects.annotate(modsalary=F('salary') % 20)
+        self.assertIsNone(qs.get().salary)
+
     def test_lefthand_bitwise_and(self):
         # LH Bitwise ands on integers
         Number.objects.filter(pk=self.n.pk).update(integer=F('integer').bitand(56))
@@ -1284,6 +1306,12 @@ class ExpressionOperatorTests(TestCase):
     def test_lefthand_bitwise_xor_null(self):
         employee = Employee.objects.create(firstname='John', lastname='Doe')
         Employee.objects.update(salary=F('salary').bitxor(48))
+        employee.refresh_from_db()
+        self.assertIsNone(employee.salary)
+
+    def test_lefthand_bitwise_xor_right_null(self):
+        employee = Employee.objects.create(firstname='John', lastname='Doe', salary=48)
+        Employee.objects.update(salary=F('salary').bitxor(None))
         employee.refresh_from_db()
         self.assertIsNone(employee.salary)
 
@@ -1473,7 +1501,6 @@ class FTimeDeltaTests(TestCase):
             test_set = [e.name for e in Experiment.objects.filter(completed__lte=F('assigned') + days)]
             self.assertEqual(test_set, self.expnames[:i + 1])
 
-    @skipUnlessDBFeature("supports_mixed_date_datetime_comparisons")
     def test_mixed_comparisons1(self):
         for i, delay in enumerate(self.delays):
             test_set = [e.name for e in Experiment.objects.filter(assigned__gt=F('start') - delay)]
@@ -1745,14 +1772,14 @@ class ValueTests(TestCase):
     def test_deconstruct(self):
         value = Value('name')
         path, args, kwargs = value.deconstruct()
-        self.assertEqual(path, 'django.db.models.expressions.Value')
+        self.assertEqual(path, 'django.db.models.Value')
         self.assertEqual(args, (value.value,))
         self.assertEqual(kwargs, {})
 
     def test_deconstruct_output_field(self):
         value = Value('name', output_field=CharField())
         path, args, kwargs = value.deconstruct()
-        self.assertEqual(path, 'django.db.models.expressions.Value')
+        self.assertEqual(path, 'django.db.models.Value')
         self.assertEqual(args, (value.value,))
         self.assertEqual(len(kwargs), 1)
         self.assertEqual(kwargs['output_field'].deconstruct(), CharField().deconstruct())
@@ -1833,6 +1860,30 @@ class ValueTests(TestCase):
         msg = 'Cannot resolve expression type, unknown output_field'
         with self.assertRaisesMessage(FieldError, msg):
             Value(object()).output_field
+
+    def test_output_field_does_not_create_broken_validators(self):
+        """
+        The output field for a given Value doesn't get cleaned & validated,
+        however validators may still be instantiated for a given field type
+        and this demonstrates that they don't throw an exception.
+        """
+        value_types = [
+            'str',
+            True,
+            42,
+            3.14,
+            datetime.date(2019, 5, 15),
+            datetime.datetime(2019, 5, 15),
+            datetime.time(3, 16),
+            datetime.timedelta(1),
+            Decimal('3.14'),
+            b'',
+            uuid.uuid4(),
+        ]
+        for value in value_types:
+            with self.subTest(type=type(value)):
+                field = Value(value)._resolve_output_field()
+                field.clean(value, model_instance=None)
 
 
 class ExistsTests(TestCase):

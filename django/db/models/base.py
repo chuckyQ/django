@@ -382,11 +382,18 @@ class ModelBase(type):
         return cls._meta.default_manager
 
 
-class ModelStateFieldsCacheDescriptor:
+class ModelStateCacheDescriptor:
+    """
+    Upon first access, replace itself with an empty dictionary on the instance.
+    """
+
+    def __set_name__(self, owner, name):
+        self.attribute_name = name
+
     def __get__(self, instance, cls=None):
         if instance is None:
             return self
-        res = instance.fields_cache = {}
+        res = instance.__dict__[self.attribute_name] = {}
         return res
 
 
@@ -398,7 +405,20 @@ class ModelState:
     # explicit (non-auto) PKs. This impacts validation only; it has no effect
     # on the actual save.
     adding = True
-    fields_cache = ModelStateFieldsCacheDescriptor()
+    fields_cache = ModelStateCacheDescriptor()
+    related_managers_cache = ModelStateCacheDescriptor()
+
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        if 'fields_cache' in state:
+            state['fields_cache'] = self.fields_cache.copy()
+        # Manager instances stored in related_managers_cache won't necessarily
+        # be deserializable if they were dynamically created via an inner
+        # scope, e.g. create_forward_many_to_many_manager() and
+        # create_generic_related_manager().
+        if 'related_managers_cache' in state:
+            state['related_managers_cache'] = {}
+        return state
 
 
 class Model(metaclass=ModelBase):
@@ -493,18 +513,27 @@ class Model(metaclass=ModelBase):
 
         if kwargs:
             property_names = opts._property_names
-            for prop in tuple(kwargs):
-                try:
-                    # Any remaining kwargs must correspond to properties or
-                    # virtual fields.
-                    if prop in property_names or opts.get_field(prop):
-                        if kwargs[prop] is not _DEFERRED:
-                            _setattr(self, prop, kwargs[prop])
-                        del kwargs[prop]
-                except (AttributeError, FieldDoesNotExist):
-                    pass
-            for kwarg in kwargs:
-                raise TypeError("%s() got an unexpected keyword argument '%s'" % (cls.__name__, kwarg))
+            unexpected = ()
+            for prop, value in kwargs.items():
+                # Any remaining kwargs must correspond to properties or virtual
+                # fields.
+                if prop in property_names:
+                    if value is not _DEFERRED:
+                        _setattr(self, prop, value)
+                else:
+                    try:
+                        opts.get_field(prop)
+                    except FieldDoesNotExist:
+                        unexpected += (prop,)
+                    else:
+                        if value is not _DEFERRED:
+                            _setattr(self, prop, value)
+            if unexpected:
+                unexpected_names = ', '.join(repr(n) for n in unexpected)
+                raise TypeError(
+                    f'{cls.__name__}() got unexpected keyword arguments: '
+                    f'{unexpected_names}'
+                )
         super().__init__()
         post_init.send(sender=cls, instance=self)
 
@@ -552,7 +581,16 @@ class Model(metaclass=ModelBase):
         """Hook to allow choosing the attributes to pickle."""
         state = self.__dict__.copy()
         state['_state'] = copy.copy(state['_state'])
-        state['_state'].fields_cache = state['_state'].fields_cache.copy()
+        # memoryview cannot be pickled, so cast it to bytes and store
+        # separately.
+        _memoryview_attrs = []
+        for attr, value in state.items():
+            if isinstance(value, memoryview):
+                _memoryview_attrs.append((attr, bytes(value)))
+        if _memoryview_attrs:
+            state['_memoryview_attrs'] = _memoryview_attrs
+            for attr, value in _memoryview_attrs:
+                state.pop(attr)
         return state
 
     def __setstate__(self, state):
@@ -572,6 +610,9 @@ class Model(metaclass=ModelBase):
                 RuntimeWarning,
                 stacklevel=2,
             )
+        if '_memoryview_attrs' in state:
+            for attr, value in state.pop('_memoryview_attrs'):
+                state[attr] = memoryview(value)
         self.__dict__.update(state)
 
     def _get_pk_val(self, meta=None):
@@ -912,11 +953,13 @@ class Model(metaclass=ModelBase):
             using=using, raw=raw,
         )
 
-    def _prepare_related_fields_for_save(self, operation_name):
+    def _prepare_related_fields_for_save(self, operation_name, fields=None):
         # Ensure that a model instance without a PK hasn't been assigned to
         # a ForeignKey or OneToOneField on this model. If the field is
         # nullable, allowing the save would result in silent data loss.
         for field in self._meta.concrete_fields:
+            if fields and field not in fields:
+                continue
             # If the related field isn't cached, then an instance hasn't been
             # assigned and there's no need to worry about this check.
             if field.is_relation and field.is_cached(self):
@@ -953,7 +996,7 @@ class Model(metaclass=ModelBase):
                 "to None." % (self._meta.object_name, self._meta.pk.attname)
             )
         using = using or router.db_for_write(self.__class__, instance=self)
-        collector = Collector(using=using)
+        collector = Collector(using=using, origin=self)
         collector.collect([self], keep_parents=keep_parents)
         return collector.delete()
 
@@ -1828,7 +1871,7 @@ class Model(metaclass=ModelBase):
                     else:
                         fld = _cls._meta.get_field(part)
                     if fld.is_relation:
-                        _cls = fld.get_path_info()[-1].to_opts.model
+                        _cls = fld.path_infos[-1].to_opts.model
                     else:
                         _cls = None
                 except (FieldDoesNotExist, AttributeError):

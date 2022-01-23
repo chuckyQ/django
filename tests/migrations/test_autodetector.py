@@ -1573,21 +1573,13 @@ class AutodetectorTests(TestCase):
         self.assertOperationTypes(changes, 'otherapp', 0, [
             'AlterUniqueTogether',
             'AlterIndexTogether',
-            'AlterUniqueTogether',
-            'AlterIndexTogether',
         ])
         self.assertOperationAttributes(
-            changes, 'otherapp', 0, 0, name='book', unique_together=set(),
-        )
-        self.assertOperationAttributes(
-            changes, 'otherapp', 0, 1, name='book', index_together=set(),
-        )
-        self.assertOperationAttributes(
-            changes, 'otherapp', 0, 2, name='book',
+            changes, 'otherapp', 0, 0, name='book',
             unique_together={('title', 'author')},
         )
         self.assertOperationAttributes(
-            changes, 'otherapp', 0, 3, name='book',
+            changes, 'otherapp', 0, 1, name='book',
             index_together={('title', 'author')},
         )
 
@@ -1639,26 +1631,18 @@ class AutodetectorTests(TestCase):
         self.assertOperationTypes(changes, 'otherapp', 0, [
             'AlterUniqueTogether',
             'AlterIndexTogether',
-            'AlterUniqueTogether',
-            'AlterIndexTogether',
             'RemoveField',
         ])
         self.assertOperationAttributes(
-            changes, 'otherapp', 0, 0, name='book', unique_together=set(),
-        )
-        self.assertOperationAttributes(
-            changes, 'otherapp', 0, 1, name='book', index_together=set(),
-        )
-        self.assertOperationAttributes(
-            changes, 'otherapp', 0, 2, name='book',
+            changes, 'otherapp', 0, 0, name='book',
             unique_together={('author', 'title')},
         )
         self.assertOperationAttributes(
-            changes, 'otherapp', 0, 3, name='book',
+            changes, 'otherapp', 0, 1, name='book',
             index_together={('author', 'title')},
         )
         self.assertOperationAttributes(
-            changes, 'otherapp', 0, 4, model_name='book', name='newfield',
+            changes, 'otherapp', 0, 2, model_name='book', name='newfield',
         )
 
     def test_alter_field_and_foo_together(self):
@@ -1744,21 +1728,13 @@ class AutodetectorTests(TestCase):
             'RenameField',
             'AlterUniqueTogether',
             'AlterIndexTogether',
-            'AlterUniqueTogether',
-            'AlterIndexTogether',
         ])
         self.assertOperationAttributes(
-            changes, 'otherapp', 0, 1, name='book', unique_together=set(),
-        )
-        self.assertOperationAttributes(
-            changes, 'otherapp', 0, 2, name='book', index_together=set(),
-        )
-        self.assertOperationAttributes(
-            changes, 'otherapp', 0, 3, name='book',
+            changes, 'otherapp', 0, 1, name='book',
             unique_together={('title', 'newfield2')},
         )
         self.assertOperationAttributes(
-            changes, 'otherapp', 0, 4, name='book',
+            changes, 'otherapp', 0, 2, name='book',
             index_together={('title', 'newfield2')},
         )
 
@@ -1782,6 +1758,29 @@ class AutodetectorTests(TestCase):
         self.assertOperationTypes(changes, "testapp", 0, ["DeleteModel", "CreateModel"])
         self.assertOperationAttributes(changes, "testapp", 0, 0, name="AuthorProxy")
         self.assertOperationAttributes(changes, "testapp", 0, 1, name="AuthorProxy", options={})
+
+    def test_proxy_non_model_parent(self):
+        class Mixin:
+            pass
+
+        author_proxy_non_model_parent = ModelState(
+            'testapp',
+            'AuthorProxy',
+            [],
+            {'proxy': True},
+            (Mixin, 'testapp.author'),
+        )
+        changes = self.get_changes(
+            [self.author_empty],
+            [self.author_empty, author_proxy_non_model_parent],
+        )
+        self.assertNumberMigrations(changes, 'testapp', 1)
+        self.assertOperationTypes(changes, 'testapp', 0, ['CreateModel'])
+        self.assertOperationAttributes(
+            changes, 'testapp', 0, 0, name='AuthorProxy',
+            options={'proxy': True, 'indexes': [], 'constraints': []},
+            bases=(Mixin, 'testapp.author'),
+        )
 
     def test_proxy_custom_pk(self):
         """
@@ -1941,6 +1940,22 @@ class AutodetectorTests(TestCase):
         self.assertOperationTypes(changes, 'testapp', 0, ["CreateModel"])
         self.assertOperationAttributes(changes, 'testapp', 0, 0, name="Author")
         self.assertMigrationDependencies(changes, 'testapp', 0, [("__setting__", "AUTH_USER_MODEL")])
+
+    def test_swappable_lowercase(self):
+        model_state = ModelState('testapp', 'Document', [
+            ('id', models.AutoField(primary_key=True)),
+            ('owner', models.ForeignKey(
+                settings.AUTH_USER_MODEL.lower(), models.CASCADE,
+            )),
+        ])
+        with isolate_lru_cache(apps.get_swappable_settings_name):
+            changes = self.get_changes([], [model_state])
+        self.assertNumberMigrations(changes, 'testapp', 1)
+        self.assertOperationTypes(changes, 'testapp', 0, ['CreateModel'])
+        self.assertOperationAttributes(changes, 'testapp', 0, 0, name='Document')
+        self.assertMigrationDependencies(
+            changes, 'testapp', 0, [('__setting__', 'AUTH_USER_MODEL')],
+        )
 
     def test_swappable_changed(self):
         with isolate_lru_cache(apps.get_swappable_settings_name):
@@ -2810,6 +2825,28 @@ class AutodetectorTests(TestCase):
                     MigrationAutodetector.parse_number(migration_name),
                     expected_number,
                 )
+
+    def test_add_custom_fk_with_hardcoded_to(self):
+        class HardcodedForeignKey(models.ForeignKey):
+            def __init__(self, *args, **kwargs):
+                kwargs['to'] = 'testapp.Author'
+                super().__init__(*args, **kwargs)
+
+            def deconstruct(self):
+                name, path, args, kwargs = super().deconstruct()
+                del kwargs['to']
+                return name, path, args, kwargs
+
+        book_hardcoded_fk_to = ModelState('testapp', 'Book', [
+            ('author', HardcodedForeignKey(on_delete=models.CASCADE)),
+        ])
+        changes = self.get_changes(
+            [self.author_empty],
+            [self.author_empty, book_hardcoded_fk_to],
+        )
+        self.assertNumberMigrations(changes, 'testapp', 1)
+        self.assertOperationTypes(changes, 'testapp', 0, ['CreateModel'])
+        self.assertOperationAttributes(changes, 'testapp', 0, 0, name='Book')
 
 
 class MigrationSuggestNameTests(SimpleTestCase):
